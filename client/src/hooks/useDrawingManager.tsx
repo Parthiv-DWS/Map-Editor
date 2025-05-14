@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { DrawingMode, MapFeature, RoadStyle } from '@/lib/types';
+import { DrawingMode, LatLng, MapFeature, RoadStyle } from '@/lib/types';
+import { findPath } from '@/lib/navigation';
 
 interface UseDrawingManagerProps {
   map: google.maps.Map | null;
@@ -23,6 +24,8 @@ export default function useDrawingManager({
   const [drawingMode, setDrawingMode] = useState<DrawingMode>('SELECT');
   const [featureOverlays, setFeatureOverlays] = useState<Map<string, google.maps.MVCObject>>(new Map());
   const [selectedFeature, setSelectedFeature] = useState<{id: string, overlay: google.maps.MVCObject} | null>(null);
+  const [navigationPoints, setNavigationPoints] = useState<{start?: LatLng, end?: LatLng}>({});
+  const [navigationPath, setNavigationPath] = useState<google.maps.Polyline | null>(null);
 
   // Initialize drawing manager
   useEffect(() => {
@@ -362,8 +365,92 @@ export default function useDrawingManager({
     };
   }, [map, features, drawingMode, roadStyle.blockStyle, roadStyle.width]);
 
+  // Handle map clicks for navigation
+  const handleNavigationClick = useCallback((event: google.maps.MouseEvent) => {
+    if (!map || drawingMode !== 'NAVIGATE') return;
+
+    const clickedPoint = {
+      lat: event.latLng.lat(),
+      lng: event.latLng.lng()
+    };
+
+    if (!navigationPoints.start) {
+      setNavigationPoints({ start: clickedPoint });
+      const startMarker = new google.maps.Marker({
+        position: clickedPoint,
+        map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: '#4CAF50',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+        },
+        label: {
+          text: 'A',
+          color: '#FFFFFF'
+        },
+        zIndex: 1000
+      });
+    } else if (!navigationPoints.end) {
+      setNavigationPoints(prev => ({ ...prev, end: clickedPoint }));
+      const endMarker = new google.maps.Marker({
+        position: clickedPoint,
+        map,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: '#F44336',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+        },
+        label: {
+          text: 'B',
+          color: '#FFFFFF'
+        },
+        zIndex: 1000
+      });
+
+      // Find and display path
+      const path = findPath(features, navigationPoints.start, clickedPoint);
+      if (path) {
+        if (navigationPath) {
+          navigationPath.setMap(null);
+        }
+        const newPath = new google.maps.Polyline({
+          path,
+          map,
+          strokeColor: '#FF4081', // Bright pink color for better visibility
+          strokeWeight: 6, // Thicker line
+          strokeOpacity: 0.9,
+          icons: [{ // Add animated arrows
+            icon: {
+              path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+              scale: 3,
+            },
+            offset: '50%',
+            repeat: '100px'
+          }]
+        });
+        setNavigationPath(newPath);
+      }
+    }
+  }, [map, drawingMode, navigationPoints, features]);
+
   // Handle drawing mode changes
   const setMode = useCallback((mode: DrawingMode) => {
+     // Clear navigation state when changing modes
+     if (mode !== 'NAVIGATE') {
+      setNavigationPoints({});
+      if (navigationPath) {
+        navigationPath.setMap(null);
+        setNavigationPath(null);
+      }
+      // Clear all markers
+      map?.markers?.forEach(marker => marker.setMap(null));
+    }
     if (!drawingManager) return;
 
     // Clear selection when changing modes
@@ -547,6 +634,21 @@ export default function useDrawingManager({
       onFeatureUpdate(updatedFeature);
     }
   }, [features, featureOverlays, onFeatureUpdate]);
+
+  useEffect(() => {
+    if (!map) return;
+
+    // Add click listener for navigation mode
+    const clickListener = map.addListener('click', (e) => {
+      if (drawingMode === 'NAVIGATE') {
+        handleNavigationClick(e);
+      }
+    });
+
+    return () => {
+      google.maps.event.removeListener(clickListener);
+    };
+  }, [map, drawingMode, handleNavigationClick]);
 
   return {
     drawingMode,

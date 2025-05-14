@@ -25,6 +25,7 @@ const tools: ToolItem[] = [
   { id: 'POLYGON', icon: 'category', label: 'Add Area' },
   { id: 'ERASE', icon: 'delete', label: 'Delete' },
   { id: 'BLOCK', icon: 'block', label: 'Block Road' },
+  { id: 'NAVIGATE', icon: 'directions', label: 'Navigate' },
 ];
 
 interface SidebarPanelProps {

@@ -16,7 +16,8 @@ export type DrawingMode =
   | 'MARKER'
   | 'POLYGON'
   | 'ERASE'
-  | 'BLOCK';
+  | 'BLOCK'
+  | 'NAVIGATE';
 
 export type RoadStyle = {
   color: string;

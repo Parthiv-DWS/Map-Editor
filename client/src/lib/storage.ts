@@ -8,10 +8,10 @@ localforage.config({
 });
 
 export const DEFAULT_BOUNDS = {
-  north: 37.7950,
-  south: 37.7850,
-  east: -122.3954,
-  west: -122.4054,
+  north: 23.092391,
+  south: 23.081791,
+  east: 72.46792,
+  west: 72.45392,
 };
 
 export const DEFAULT_MAP_DATA: MapData = {

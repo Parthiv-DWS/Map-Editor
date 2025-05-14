@@ -16,8 +16,8 @@ export default function MapEditor() {
   const [drawingMode, setDrawingMode] = useState<DrawingMode>('SELECT');
   const [roadStyle, setRoadStyle] = useState<RoadStyle>({
     color: '#3B82F6',
-    width: 3,
-    blockStyle: 'dashed',
+    width: 7,
+    blockStyle: 'highlight',
   });
   
   const { toast } = useToast();
@@ -151,6 +151,11 @@ export default function MapEditor() {
           title: 'Block road mode',
           description: 'Click on a road to mark it as blocked.',
         };
+      case 'NAVIGATE':
+        return {
+          title: 'Navigate',
+          description: 'Select a start and end point to calculate the route.',
+        };
       case 'SELECT':
       default:
         return {
@@ -175,6 +180,8 @@ export default function MapEditor() {
         return 'Delete';
       case 'BLOCK':
         return 'Block Road';
+      case 'NAVIGATE':
+        return 'Navigate';
       default:
         return '';
     }
