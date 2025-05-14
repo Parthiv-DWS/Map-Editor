@@ -17,13 +17,11 @@ export function findPath(
   const startPoint = startInfo.point;
   const endPoint = endInfo.point;
 
-  // Function to convert string to LatLng
   function stringToLatLng(str: string): LatLng {
     const [lat, lng] = str.split(',').map(Number);
     return { lat, lng };
   }
 
-  // Add startPoint to graph if not already present
   if (!graph.has(startPoint)) {
     graph.set(startPoint, new Map());
     const [segA, segB] = startInfo.segment;
@@ -31,14 +29,12 @@ export function findPath(
     const distB = calculateDistance(stringToLatLng(startPoint), stringToLatLng(segB));
     graph.get(startPoint)!.set(segA, distA);
     graph.get(startPoint)!.set(segB, distB);
-    // Add back edges
     if (!graph.has(segA)) graph.set(segA, new Map());
     if (!graph.has(segB)) graph.set(segB, new Map());
     graph.get(segA)!.set(startPoint, distA);
     graph.get(segB)!.set(startPoint, distB);
   }
 
-  // Similarly for endPoint
   if (!graph.has(endPoint)) {
     graph.set(endPoint, new Map());
     const [segA, segB] = endInfo.segment;
@@ -50,7 +46,6 @@ export function findPath(
     graph.get(segB)!.set(endPoint, distB);
   }
 
-  // Use Dijkstra's algorithm to find the shortest path
   const path = dijkstra(graph, startPoint, endPoint);
 
   return path;
@@ -59,7 +54,6 @@ export function findPath(
 function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
   const graph = new Map<string, Map<string, number>>();
 
-  // First pass: Connect consecutive points in each road
   roads.forEach(road => {
     if (road.type === 'road' && road.path && !road.properties.isBlocked) {
       for (let i = 0; i < road.path.length - 1; i++) {
@@ -76,7 +70,6 @@ function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
     }
   });
 
-  // Second pass: Handle intersections between roads
   for (let i = 0; i < roads.length; i++) {
     const road = roads[i];
     if (road.type !== 'road' || !road.path || road.properties.isBlocked) continue;
@@ -98,7 +91,6 @@ function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
             const intersectionStr = `${intersection.lat},${intersection.lng}`;
             if (!graph.has(intersectionStr)) graph.set(intersectionStr, new Map());
 
-            // Connect intersection to segment endpoints
             const points = [
               { pt: pointA, str: `${pointA.lat},${pointA.lng}` },
               { pt: pointB, str: `${pointB.lat},${pointB.lng}` },
@@ -239,7 +231,6 @@ function dijkstra(
     }
   }
 
-  // Reconstruct path
   const path: LatLng[] = [];
   let current: string | undefined = end;
 
@@ -248,8 +239,9 @@ function dijkstra(
     path.unshift({ lat, lng });
     current = previous.get(current);
   }
-  
-  if (!current) return null; // No path found
+
+  if (!current) return null;
+
   const [lat, lng] = start.split(',').map(Number);
   path.unshift({ lat, lng });
   
