@@ -65,45 +65,85 @@ function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
         if (!graph.has(pointB)) graph.set(pointB, new Map());
 
         graph.get(pointA)!.set(pointB, distance);
-        graph.get(pointB)!.set(pointA, distance);
+        graph.get(pointB)!.set(pointA, distance); // Assuming bidirectional roads
       }
     }
   });
 
+  // Intersection handling
   for (let i = 0; i < roads.length; i++) {
     const road = roads[i];
     if (road.type !== 'road' || !road.path || road.properties.isBlocked) continue;
 
-    for (let j = i + 1; j < roads.length; j++) {
+    for (let j = i + 1; j < roads.length; j++) { // Start from i + 1 to avoid duplicate checks
       const otherRoad = roads[j];
       if (otherRoad.type !== 'road' || !otherRoad.path || otherRoad.properties.isBlocked) continue;
 
       for (let k = 0; k < road.path.length - 1; k++) {
-        const pointA = road.path[k];
-        const pointB = road.path[k + 1];
+        const segA = road.path[k]; // These are LatLng objects
+        const segB = road.path[k + 1];
 
         for (let m = 0; m < otherRoad.path.length - 1; m++) {
-          const otherPointA = otherRoad.path[m];
-          const otherPointB = otherRoad.path[m + 1];
+          const otherSegA = otherRoad.path[m];
+          const otherSegB = otherRoad.path[m + 1];
 
-          const intersection = findIntersection(pointA, pointB, otherPointA, otherPointB);
+          const intersection = findIntersection(segA, segB, otherSegA, otherSegB);
           if (intersection) {
             const intersectionStr = `${intersection.lat},${intersection.lng}`;
+
+            // Add intersection point to graph if not already present
             if (!graph.has(intersectionStr)) graph.set(intersectionStr, new Map());
 
-            const points = [
-              { pt: pointA, str: `${pointA.lat},${pointA.lng}` },
-              { pt: pointB, str: `${pointB.lat},${pointB.lng}` },
-              { pt: otherPointA, str: `${otherPointA.lat},${otherPointA.lng}` },
-              { pt: otherPointB, str: `${otherPointB.lat},${otherPointB.lng}` }
-            ];
+            // --- IMPORTANT: Splitting existing segments with the intersection point ---
+            // If the intersection point is new, it means an existing segment needs to be split.
+            // For segment (segA, segB):
+            const segAStr = `${segA.lat},${segA.lng}`;
+            const segBStr = `${segB.lat},${segB.lng}`;
 
-            points.forEach(({ pt, str }) => {
-              if (!graph.has(str)) graph.set(str, new Map());
-              const dist = calculateDistance(pt, intersection);
-              graph.get(str)!.set(intersectionStr, dist);
-              graph.get(intersectionStr)!.set(str, dist);
-            });
+            // Remove existing edge between segA and segB (if it exists)
+            if (graph.get(segAStr)?.has(segBStr)) {
+                graph.get(segAStr)!.delete(segBStr);
+            }
+            if (graph.get(segBStr)?.has(segAStr)) {
+                graph.get(segBStr)!.delete(segAStr);
+            }
+
+            // Add new edges: segA <-> intersectionStr and intersectionStr <-> segB
+            const distSegA_Int = calculateDistance(segA, intersection);
+            const distInt_SegB = calculateDistance(intersection, segB);
+
+            if (!graph.has(segAStr)) graph.set(segAStr, new Map());
+            if (!graph.has(segBStr)) graph.set(segBStr, new Map());
+
+            graph.get(segAStr)!.set(intersectionStr, distSegA_Int);
+            graph.get(intersectionStr)!.set(segAStr, distSegA_Int);
+
+            graph.get(intersectionStr)!.set(segBStr, distInt_SegB);
+            graph.get(segBStr)!.set(intersectionStr, distInt_SegB);
+
+
+            // Do the same for the other road segment (otherSegA, otherSegB)
+            const otherSegAStr = `${otherSegA.lat},${otherSegA.lng}`;
+            const otherSegBStr = `${otherSegB.lat},${otherSegB.lng}`;
+
+            if (graph.get(otherSegAStr)?.has(otherSegBStr)) {
+                graph.get(otherSegAStr)!.delete(otherSegBStr);
+            }
+            if (graph.get(otherSegBStr)?.has(otherSegAStr)) {
+                graph.get(otherSegBStr)!.delete(otherSegAStr);
+            }
+
+            const distOtherSegA_Int = calculateDistance(otherSegA, intersection);
+            const distInt_OtherSegB = calculateDistance(intersection, otherSegB);
+
+            if (!graph.has(otherSegAStr)) graph.set(otherSegAStr, new Map());
+            if (!graph.has(otherSegBStr)) graph.set(otherSegBStr, new Map());
+
+            graph.get(otherSegAStr)!.set(intersectionStr, distOtherSegA_Int);
+            graph.get(intersectionStr)!.set(otherSegAStr, distOtherSegA_Int);
+
+            graph.get(intersectionStr)!.set(otherSegBStr, distInt_OtherSegB);
+            graph.get(otherSegBStr)!.set(intersectionStr, distInt_OtherSegB);
           }
         }
       }
