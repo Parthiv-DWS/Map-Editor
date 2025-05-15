@@ -1,218 +1,34 @@
-
-import { MapFeature, LatLng } from './types';
-
-// Main function to find the shortest path
-export function findPath(
-  roads: MapFeature[],
-  start: LatLng,
-  end: LatLng
-): LatLng[] | null {
-  const graph = buildGraph(roads);
-
-  const startInfo = findNearestPoint(start, roads);
-  const endInfo = findNearestPoint(end, roads);
-
-  if (!startInfo || !endInfo) return null;
-
-  const startPoint = startInfo.point;
-  const endPoint = endInfo.point;
-
-  function stringToLatLng(str: string): LatLng {
-    const [lat, lng] = str.split(',').map(Number);
-    return { lat, lng };
-  }
-
-  if (!graph.has(startPoint)) {
-    graph.set(startPoint, new Map());
-    const [segA, segB] = startInfo.segment;
-    const distA = calculateDistance(stringToLatLng(startPoint), stringToLatLng(segA));
-    const distB = calculateDistance(stringToLatLng(startPoint), stringToLatLng(segB));
-    graph.get(startPoint)!.set(segA, distA);
-    graph.get(startPoint)!.set(segB, distB);
-    if (!graph.has(segA)) graph.set(segA, new Map());
-    if (!graph.has(segB)) graph.set(segB, new Map());
-    graph.get(segA)!.set(startPoint, distA);
-    graph.get(segB)!.set(startPoint, distB);
-  }
-
-  if (!graph.has(endPoint)) {
-    graph.set(endPoint, new Map());
-    const [segA, segB] = endInfo.segment;
-    const distA = calculateDistance(stringToLatLng(endPoint), stringToLatLng(segA));
-    const distB = calculateDistance(stringToLatLng(endPoint), stringToLatLng(segB));
-    graph.get(endPoint)!.set(segA, distA);
-    graph.get(endPoint)!.set(segB, distB);
-    graph.get(segA)!.set(endPoint, distA);
-    graph.get(segB)!.set(endPoint, distB);
-  }
-
-  const path = dijkstra(graph, startPoint, endPoint);
-
-  return path;
+export interface LatLng {
+  lat: number;
+  lng: number;
 }
 
-function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
-  const graph = new Map<string, Map<string, number>>();
-
-  roads.forEach(road => {
-    if (road.type === 'road' && road.path && !road.properties.isBlocked) {
-      for (let i = 0; i < road.path.length - 1; i++) {
-        const pointA = `${road.path[i].lat},${road.path[i].lng}`;
-        const pointB = `${road.path[i + 1].lat},${road.path[i + 1].lng}`;
-        const distance = calculateDistance(road.path[i], road.path[i + 1]);
-
-        if (!graph.has(pointA)) graph.set(pointA, new Map());
-        if (!graph.has(pointB)) graph.set(pointB, new Map());
-
-        graph.get(pointA)!.set(pointB, distance);
-        graph.get(pointB)!.set(pointA, distance); // Assuming bidirectional roads
-      }
-    }
-  });
-
-  // Intersection handling
-  for (let i = 0; i < roads.length; i++) {
-    const road = roads[i];
-    if (road.type !== 'road' || !road.path || road.properties.isBlocked) continue;
-
-    for (let j = i + 1; j < roads.length; j++) { // Start from i + 1 to avoid duplicate checks
-      const otherRoad = roads[j];
-      if (otherRoad.type !== 'road' || !otherRoad.path || otherRoad.properties.isBlocked) continue;
-
-      for (let k = 0; k < road.path.length - 1; k++) {
-        const segA = road.path[k]; // These are LatLng objects
-        const segB = road.path[k + 1];
-
-        for (let m = 0; m < otherRoad.path.length - 1; m++) {
-          const otherSegA = otherRoad.path[m];
-          const otherSegB = otherRoad.path[m + 1];
-
-          const intersection = findIntersection(segA, segB, otherSegA, otherSegB);
-          if (intersection) {
-            const intersectionStr = `${intersection.lat},${intersection.lng}`;
-
-            // Add intersection point to graph if not already present
-            if (!graph.has(intersectionStr)) graph.set(intersectionStr, new Map());
-
-            // --- IMPORTANT: Splitting existing segments with the intersection point ---
-            // If the intersection point is new, it means an existing segment needs to be split.
-            // For segment (segA, segB):
-            const segAStr = `${segA.lat},${segA.lng}`;
-            const segBStr = `${segB.lat},${segB.lng}`;
-
-            // Remove existing edge between segA and segB (if it exists)
-            if (graph.get(segAStr)?.has(segBStr)) {
-                graph.get(segAStr)!.delete(segBStr);
-            }
-            if (graph.get(segBStr)?.has(segAStr)) {
-                graph.get(segBStr)!.delete(segAStr);
-            }
-
-            // Add new edges: segA <-> intersectionStr and intersectionStr <-> segB
-            const distSegA_Int = calculateDistance(segA, intersection);
-            const distInt_SegB = calculateDistance(intersection, segB);
-
-            if (!graph.has(segAStr)) graph.set(segAStr, new Map());
-            if (!graph.has(segBStr)) graph.set(segBStr, new Map());
-
-            graph.get(segAStr)!.set(intersectionStr, distSegA_Int);
-            graph.get(intersectionStr)!.set(segAStr, distSegA_Int);
-
-            graph.get(intersectionStr)!.set(segBStr, distInt_SegB);
-            graph.get(segBStr)!.set(intersectionStr, distInt_SegB);
-
-
-            // Do the same for the other road segment (otherSegA, otherSegB)
-            const otherSegAStr = `${otherSegA.lat},${otherSegA.lng}`;
-            const otherSegBStr = `${otherSegB.lat},${otherSegB.lng}`;
-
-            if (graph.get(otherSegAStr)?.has(otherSegBStr)) {
-                graph.get(otherSegAStr)!.delete(otherSegBStr);
-            }
-            if (graph.get(otherSegBStr)?.has(otherSegAStr)) {
-                graph.get(otherSegBStr)!.delete(otherSegAStr);
-            }
-
-            const distOtherSegA_Int = calculateDistance(otherSegA, intersection);
-            const distInt_OtherSegB = calculateDistance(intersection, otherSegB);
-
-            if (!graph.has(otherSegAStr)) graph.set(otherSegAStr, new Map());
-            if (!graph.has(otherSegBStr)) graph.set(otherSegBStr, new Map());
-
-            graph.get(otherSegAStr)!.set(intersectionStr, distOtherSegA_Int);
-            graph.get(intersectionStr)!.set(otherSegAStr, distOtherSegA_Int);
-
-            graph.get(intersectionStr)!.set(otherSegBStr, distInt_OtherSegB);
-            graph.get(otherSegBStr)!.set(intersectionStr, distInt_OtherSegB);
-          }
-        }
-      }
-    }
-  }
-
-  return graph;
-}
-
-function findIntersection(A: LatLng, B: LatLng, C: LatLng, D: LatLng): LatLng | null {
-  const denominator = (A.lat - B.lat) * (C.lng - D.lng) - (A.lng - B.lng) * (C.lat - D.lat);
-  if (Math.abs(denominator) < 1e-10) return null;
-
-  const numerator1 = (A.lng - C.lng) * (C.lat - D.lat) - (A.lat - C.lat) * (C.lng - D.lng);
-  const numerator2 = (A.lng - C.lng) * (A.lat - B.lat) - (A.lat - C.lat) * (A.lng - B.lng);
-
-  const r1 = numerator1 / denominator;
-  const r2 = numerator2 / denominator;
-
-  if (r1 >= 0 && r1 <= 1 && r2 >= 0 && r2 <= 1) {
-    const lat = A.lat + r1 * (B.lat - A.lat);
-    const lng = A.lng + r1 * (B.lng - A.lng);
-    return { lat, lng };
-  }
-
-  return null;
-}
-
-function findNearestPoint(target: LatLng, roads: MapFeature[]): { point: string, segment: [string, string] } | null {
-  let minDistance = Infinity;
-  let nearest: { point: string, segment: [string, string] } | null = null;
-
-  roads.forEach(road => {
-    if (road.type === 'road' && road.path && !road.properties.isBlocked) {
-      for (let i = 0; i < road.path.length - 1; i++) {
-        const pointA = road.path[i];
-        const pointB = road.path[i + 1];
-        const projectedPoint = projectPointOnLineSegment(pointA, pointB, target);
-        const distance = calculateDistance(target, projectedPoint);
-        if (distance < minDistance) {
-          minDistance = distance;
-          const pointStr = `${projectedPoint.lat},${projectedPoint.lng}`;
-          const segment = [`${pointA.lat},${pointA.lng}`, `${pointB.lat},${pointB.lng}`];
-          nearest = { point: pointStr, segment };
-        }
-      }
-    }
-  });
-
-  return nearest;
-}
-
-function projectPointOnLineSegment(A: LatLng, B: LatLng, C: LatLng): LatLng {
-  const ABx = B.lat - A.lat;
-  const ABy = B.lng - A.lng;
-  const ACx = C.lat - A.lat;
-  const ACy = C.lng - A.lng;
-  const AB_AB = ABx * ABx + ABy * ABy;
-  const AB_AC = ABx * ACx + ABy * ACy;
-  const t = AB_AB === 0 ? 0 : Math.max(0, Math.min(1, AB_AC / AB_AB));
-
-  return {
-    lat: A.lat + t * ABx,
-    lng: A.lng + t * ABy
+export interface MapFeature {
+  id: string; // Assuming roads have IDs
+  type: string;
+  path: LatLng[] | null;
+  properties: {
+    isBlocked: boolean;
+    [key: string]: any;
   };
 }
 
+// --- Utility Functions (mostly from your existing code) ---
+function stringToLatLng(str: string): LatLng {
+  const [lat, lng] = str.split(',').map(Number);
+  return { lat, lng };
+}
+
+function latLngToString(point: LatLng): string {
+  return `${point.lat.toFixed(8)},${point.lng.toFixed(8)}`; // Increased precision slightly for keys
+}
+
+function arePointsEqual(p1: LatLng, p2: LatLng, tolerance: number = 1e-7): boolean { // Adjusted tolerance
+  return Math.abs(p1.lat - p2.lat) < tolerance && Math.abs(p1.lng - p2.lng) < tolerance;
+}
+
 function calculateDistance(point1: LatLng, point2: LatLng): number {
-  const R = 6371e3;
+  const R = 6371e3; // Earth radius in meters
   const φ1 = (point1.lat * Math.PI) / 180;
   const φ2 = (point2.lat * Math.PI) / 180;
   const Δφ = ((point2.lat - point1.lat) * Math.PI) / 180;
@@ -226,64 +42,499 @@ function calculateDistance(point1: LatLng, point2: LatLng): number {
   return R * c;
 }
 
-function dijkstra(
-  graph: Map<string, Map<string, number>>,
-  start: string,
-  end: string
-): LatLng[] | null {
-  const distances = new Map<string, number>();
-  const previous = new Map<string, string>();
-  const unvisited = new Set<string>();
+function projectPointOnLineSegment(A: LatLng, B: LatLng, C: LatLng): LatLng {
+  const ABx = B.lat - A.lat;
+  const ABy = B.lng - A.lng;
+  const ACx = C.lat - A.lat;
+  const ACy = C.lng - A.lng;
+  
+  const dotAB_AB = ABx * ABx + ABy * ABy;
+  if (dotAB_AB === 0) return A; // A and B are the same point
 
-  graph.forEach((_, vertex) => {
-    distances.set(vertex, Infinity);
-    unvisited.add(vertex);
+  const dotAB_AC = ABx * ACx + ABy * ACy;
+  let t = dotAB_AC / dotAB_AB;
+  t = Math.max(0, Math.min(1, t)); // Clamp t to [0, 1] for segment projection
+
+  return {
+    lat: A.lat + t * ABx,
+    lng: A.lng + t * ABy,
+  };
+}
+
+function findIntersection(A: LatLng, B: LatLng, C: LatLng, D: LatLng): LatLng | null {
+  // Line AB represented as A + r(B - A)
+  // Line CD represented as C + s(D - C)
+  // We need to solve for r and s.
+  const p0_x = A.lng; const p0_y = A.lat;
+  const p1_x = B.lng; const p1_y = B.lat;
+  const p2_x = C.lng; const p2_y = C.lat;
+  const p3_x = D.lng; const p3_y = D.lat;
+
+  const s1_x = p1_x - p0_x;
+  const s1_y = p1_y - p0_y;
+  const s2_x = p3_x - p2_x;
+  const s2_y = p3_y - p2_y;
+
+  const denominator = (-s2_x * s1_y + s1_x * s2_y);
+  if (Math.abs(denominator) < 1e-9) { // Lines are parallel or collinear
+      return null; 
+  }
+
+  const s = (-s1_y * (p0_x - p2_x) + s1_x * (p0_y - p2_y)) / denominator;
+  const t = ( s2_x * (p0_y - p2_y) - s2_y * (p0_x - p2_x)) / denominator;
+
+  const epsilon = 1e-5; // Tolerance for checking if intersection is on segment
+
+  if (s >= -epsilon && s <= 1 + epsilon && t >= -epsilon && t <= 1 + epsilon) {
+    // Collision detected
+    return {
+      lat: p0_y + (t * s1_y),
+      lng: p0_x + (t * s1_x),
+    };
+  }
+  return null; // No collision
+}
+
+
+function snapToVertex(point: LatLng, vertices: LatLng[], tolerance: number = 1e-7): LatLng {
+  for (const vertex of vertices) {
+    if (arePointsEqual(point, vertex, tolerance)) {
+      return vertex; // Return the actual vertex object to maintain reference if needed (though string keys dominate)
+    }
+  }
+  return point;
+}
+
+// --- Graph Building Logic (buildGraph) ---
+function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
+  const graph = new Map<string, Map<string, number>>();
+  const allVerticesInvolvedInIntersections = new Set<string>();
+
+
+  // Step 1: Add original road segments to graph
+  const processedRoads: { road: MapFeature, path: LatLng[], isLoop: boolean }[] = [];
+  roads.forEach(road => {
+    if (road.type !== 'road' || !road.path || road.path.length < 2 || road.properties.isBlocked) {
+      return;
+    }
+    const uniquePath: LatLng[] = [];
+    if (road.path.length > 0) {
+        uniquePath.push(road.path[0]);
+        for (let i = 1; i < road.path.length; i++) {
+            if (!arePointsEqual(road.path[i], road.path[i-1])) {
+                uniquePath.push(road.path[i]);
+            }
+        }
+    }
+    if (uniquePath.length < 2) return;
+
+    let isLoop = uniquePath.length > 2 && arePointsEqual(uniquePath[0], uniquePath[uniquePath.length - 1]);
+    if (isLoop) {
+      uniquePath.pop(); // Remove duplicate end point for loops
+    }
+    processedRoads.push({ road, path: uniquePath, isLoop });
+
+    for (let i = 0; i < uniquePath.length; i++) {
+      const p1 = uniquePath[i];
+      const p2 = uniquePath[(i + 1) % uniquePath.length]; // Handles loops correctly
+
+      if (i === uniquePath.length - 1 && !isLoop) continue; // Don't connect last to first for non-loops
+
+      const p1Str = latLngToString(p1);
+      const p2Str = latLngToString(p2);
+
+      if (!graph.has(p1Str)) graph.set(p1Str, new Map());
+      if (!graph.has(p2Str)) graph.set(p2Str, new Map());
+
+      const dist = calculateDistance(p1, p2);
+      graph.get(p1Str)!.set(p2Str, dist);
+      graph.get(p2Str)!.set(p1Str, dist);
+    }
   });
-  distances.set(start, 0);
 
-  while (unvisited.size > 0) {
-    let minDistance = Infinity;
-    let current: string | null = null;
+  // Step 2: Find intersections and update graph
+  const intersectionPointsToAdd: { point: LatLng, segments: [[LatLng, LatLng], [LatLng, LatLng]] }[] = [];
 
-    for (const vertex of unvisited) {
-      if (distances.get(vertex)! < minDistance) {
-        minDistance = distances.get(vertex)!;
-        current = vertex;
+  for (let i = 0; i < processedRoads.length; i++) {
+    const r1 = processedRoads[i];
+    // Self-intersections
+    for (let j = 0; j < r1.path.length; j++) {
+      const seg1A = r1.path[j];
+      const seg1B = r1.path[(j + 1) % r1.path.length];
+      if (j === r1.path.length -1 && !r1.isLoop) continue;
+
+
+      for (let k = j + 2; k < r1.path.length; k++) { // k starts at j+2 to avoid adjacent segments
+        if (r1.isLoop && j === 0 && k === r1.path.length - 1) continue; // Avoid P0-P1 vs P(last)-P0
+
+        const seg2A = r1.path[k];
+        const seg2B = r1.path[(k + 1) % r1.path.length];
+        if (k === r1.path.length -1 && !r1.isLoop) continue;
+
+
+        const intersection = findIntersection(seg1A, seg1B, seg2A, seg2B);
+        if (intersection) {
+          const snappedInt = snapToVertex(intersection, r1.path);
+          intersectionPointsToAdd.push({ point: snappedInt, segments: [[seg1A, seg1B], [seg2A, seg2B]] });
+        }
       }
     }
 
-    if (current === null) break;
-    if (current === end) break;
+    // Intersections with other roads
+    for (let l = i + 1; l < processedRoads.length; l++) {
+      const r2 = processedRoads[l];
+      for (let j = 0; j < r1.path.length; j++) {
+        const seg1A = r1.path[j];
+        const seg1B = r1.path[(j + 1) % r1.path.length];
+        if (j === r1.path.length -1 && !r1.isLoop) continue;
 
-    unvisited.delete(current);
+        for (let k = 0; k < r2.path.length; k++) {
+          const seg2A = r2.path[k];
+          const seg2B = r2.path[(k + 1) % r2.path.length];
+          if (k === r2.path.length -1 && !r2.isLoop) continue;
 
-    const neighbors = graph.get(current);
-    if (neighbors) {
-      for (const [neighbor, distance] of neighbors) {
-        if (unvisited.has(neighbor)) {
-          const alt = distances.get(current)! + distance;
-          if (alt < distances.get(neighbor)!) {
-            distances.set(neighbor, alt);
-            previous.set(neighbor, current);
+          const intersection = findIntersection(seg1A, seg1B, seg2A, seg2B);
+          if (intersection) {
+            const snappedInt = snapToVertex(intersection, [...r1.path, ...r2.path]);
+            intersectionPointsToAdd.push({ point: snappedInt, segments: [[seg1A, seg1B], [seg2A, seg2B]] });
           }
         }
       }
     }
   }
+  
+  // Step 3: Process collected intersections to split segments in the graph
+  intersectionPointsToAdd.forEach(({ point: intersectionPoint, segments }) => {
+    const intStr = latLngToString(intersectionPoint);
+    if (!graph.has(intStr)) {
+        graph.set(intStr, new Map());
+    }
 
-  const path: LatLng[] = [];
-  let current: string | undefined = end;
+    segments.forEach(([segA, segB]) => {
+        const segAStr = latLngToString(segA);
+        const segBStr = latLngToString(segB);
 
-  while (current && current !== start) {
-    const [lat, lng] = current.split(',').map(Number);
-    path.unshift({ lat, lng });
-    current = previous.get(current);
+        // Only process if the original segment A-B exists and intersection is not one of its endpoints
+        if (!arePointsEqual(intersectionPoint, segA) && !arePointsEqual(intersectionPoint, segB)) {
+            // Remove original edge A-B
+            if (graph.get(segAStr)?.has(segBStr)) {
+                graph.get(segAStr)!.delete(segBStr);
+                graph.get(segBStr)!.delete(segAStr);
+
+                // Add edges A-Intersection and B-Intersection
+                const distAInt = calculateDistance(segA, intersectionPoint);
+                const distBInt = calculateDistance(segB, intersectionPoint);
+
+                graph.get(segAStr)!.set(intStr, distAInt);
+                graph.get(intStr)!.set(segAStr, distAInt);
+
+                graph.get(segBStr)!.set(intStr, distBInt);
+                graph.get(intStr)!.set(segBStr, distBInt);
+            }
+        }
+        // Connect intersection point to segment endpoints (if intersection is one of the endpoints, this is fine)
+        // This ensures connectivity even if snapToVertex made intersectionPoint = segA or segB
+        // The previous block handles splitting. This block ensures the intersection node is connected.
+        // This might add redundant connections if the intersection point is an existing vertex,
+        // but Dijkstra will handle it.
+        // A better way is that if intersectionPoint IS segA or segB, no new edges for *this* segment are needed for splitting.
+        // The crucial part is connecting intStr to the *other* segment's endpoints.
+
+        // Simplified: the loop structure will add intStr to endpoints of segment 1, then segment 2.
+        // If intStr is an endpoint of seg1 (e.g. segA), then distAInt is 0.
+        // Let's ensure intStr is connected to all 4 original segment endpoints (A, B, C, D)
+        // IF it lies on their respective segments.
+    });
+     // The previous block correctly splits segment A-B by intStr into A-intStr and intStr-B.
+     // This needs to be done for *both* segments involved in the intersection.
+     // The `segments.forEach` loop does this for each segment of the pair.
+  });
+
+
+  return graph;
+}
+
+
+// --- Finding Nearest Point on Processed Graph ---
+interface NearestPointInfo {
+  point: LatLng;      // The coordinate of the nearest point
+  pointStr: string;   // Stringified version of the point
+  segmentNodes: [string, string]; // The two graph nodes defining the segment it's on
+  onExistingNode: boolean; // True if 'point' is an existing graph node
+}
+
+function findNearestPointOnGraph(
+  target: LatLng,
+  graph: Map<string, Map<string, number>>
+): NearestPointInfo | null {
+  let minDistance = Infinity;
+  let nearestResult: NearestPointInfo | null = null;
+  const visitedSegments = new Set<string>();
+
+  graph.forEach((edges, nodeA_str) => {
+    const nodeA_latlng = stringToLatLng(nodeA_str);
+
+    const distToNodeA = calculateDistance(target, nodeA_latlng);
+    if (distToNodeA < minDistance) {
+      minDistance = distToNodeA;
+      nearestResult = {
+        point: nodeA_latlng,
+        pointStr: nodeA_str,
+        segmentNodes: [nodeA_str, nodeA_str], // Indicates it's on a node
+        onExistingNode: true,
+      };
+    }
+
+    edges.forEach((_, nodeB_str) => {
+      const segKey1 = `${nodeA_str}|${nodeB_str}`;
+      const segKey2 = `${nodeB_str}|${nodeA_str}`;
+      if (visitedSegments.has(segKey1) || visitedSegments.has(segKey2) || nodeA_str === nodeB_str) {
+        return;
+      }
+      visitedSegments.add(segKey1);
+
+      const nodeB_latlng = stringToLatLng(nodeB_str);
+      const projectedPoint = projectPointOnLineSegment(nodeA_latlng, nodeB_latlng, target);
+      const distToProjected = calculateDistance(target, projectedPoint);
+
+      if (distToProjected < minDistance) {
+        minDistance = distToProjected;
+        let onNode = false;
+        let finalPointStr = latLngToString(projectedPoint);
+        let finalPoint = projectedPoint;
+
+        if (arePointsEqual(projectedPoint, nodeA_latlng)) {
+            onNode = true;
+            finalPointStr = nodeA_str;
+            finalPoint = nodeA_latlng;
+        } else if (arePointsEqual(projectedPoint, nodeB_latlng)) {
+            onNode = true;
+            finalPointStr = nodeB_str;
+            finalPoint = nodeB_latlng;
+        }
+        
+        nearestResult = {
+          point: finalPoint,
+          pointStr: finalPointStr,
+          segmentNodes: [nodeA_str, nodeB_str],
+          onExistingNode: onNode,
+        };
+      }
+    });
+  });
+  return nearestResult;
+}
+
+// --- Adding Projected Point to Graph ---
+function addPointToGraph(
+  graph: Map<string, Map<string, number>>,
+  nearestInfo: NearestPointInfo
+): string { // Returns the string key of the effective node for originalPoint in the graph
+  
+  if (nearestInfo.onExistingNode) {
+    return nearestInfo.pointStr; // Use the existing node.
   }
 
-  if (!current) return null;
+  const projectedPointStr = nearestInfo.pointStr;
+  const projectedPointLatLng = nearestInfo.point;
 
-  const [lat, lng] = start.split(',').map(Number);
-  path.unshift({ lat, lng });
+  // If projectedPointStr is already a node (e.g., two projections map to the same non-vertex point)
+  // This check implies that if onExistingNode was false, but the string key somehow matches an existing node,
+  // we treat it as if it were an existing node to avoid re-splitting.
+  if (graph.has(projectedPointStr)) {
+      return projectedPointStr;
+  }
   
-  return path;
+  graph.set(projectedPointStr, new Map());
+
+  const [segNodeA_str, segNodeB_str] = nearestInfo.segmentNodes;
+  // Ensure segNodeA_str and segNodeB_str are valid nodes from the graph
+  if (!graph.has(segNodeA_str) || !graph.has(segNodeB_str)) {
+      console.error("Segment nodes for projection not found in graph:", segNodeA_str, segNodeB_str);
+      // Fallback: connect projection only to existing nodes, or handle error
+      // For now, we assume graph integrity means they exist.
+  }
+
+  const segNodeA_latlng = stringToLatLng(segNodeA_str);
+  const segNodeB_latlng = stringToLatLng(segNodeB_str);
+
+  // Remove old edge segNodeA_str --- segNodeB_str from graph
+  graph.get(segNodeA_str)?.delete(segNodeB_str);
+  graph.get(segNodeB_str)?.delete(segNodeA_str);
+  
+  // Add new edges: segNodeA_str --- projectedPointStr --- segNodeB_str
+  const distProjToSegA = calculateDistance(projectedPointLatLng, segNodeA_latlng);
+  graph.get(projectedPointStr)!.set(segNodeA_str, distProjToSegA);
+  graph.get(segNodeA_str)!.set(projectedPointStr, distProjToSegA);
+
+  const distProjToSegB = calculateDistance(projectedPointLatLng, segNodeB_latlng);
+  graph.get(projectedPointStr)!.set(segNodeB_str, distProjToSegB);
+  graph.get(segNodeB_str)!.set(projectedPointStr, distProjToSegB);
+  
+  return projectedPointStr;
+}
+
+// --- Dijkstra's Algorithm ---
+function dijkstra(
+  graph: Map<string, Map<string, number>>,
+  startNodeStr: string,
+  endNodeStr: string
+): LatLng[] | null {
+  const distances = new Map<string, number>();
+  const previous = new Map<string, string>();
+  const pq = new Map<string, number>(); // Using a Map as a min-priority queue (simplified)
+
+  graph.forEach((_, vertex) => {
+    distances.set(vertex, Infinity);
+  });
+
+  distances.set(startNodeStr, 0);
+  pq.set(startNodeStr, 0);
+
+  while (pq.size > 0) {
+    // Get vertex with smallest distance from pq
+    let u: string | null = null;
+    let minVal = Infinity;
+    pq.forEach((dist, vertex) => {
+      if (dist < minVal) {
+        minVal = dist;
+        u = vertex;
+      }
+    });
+
+    if (u === null) break; // Should not happen if pq is not empty
+    
+    pq.delete(u);
+
+    if (u === endNodeStr) break; // Reached destination
+
+    const neighbors = graph.get(u);
+    if (neighbors) {
+      for (const [v_neighbor, weight] of neighbors) {
+        const alt = distances.get(u)! + weight;
+        if (alt < distances.get(v_neighbor)!) {
+          distances.set(v_neighbor, alt);
+          previous.set(v_neighbor, u);
+          pq.set(v_neighbor, alt);
+        }
+      }
+    }
+  }
+
+  if (distances.get(endNodeStr) === Infinity) {
+    return null; // No path found
+  }
+
+  const path: LatLng[] = [];
+  let currentPathNode: string | undefined = endNodeStr;
+  while (currentPathNode) {
+    path.unshift(stringToLatLng(currentPathNode));
+    if (currentPathNode === startNodeStr) break;
+    currentPathNode = previous.get(currentPathNode);
+  }
+  
+  // Ensure path actually starts at startNodeStr if found
+  if (path.length === 0 || !arePointsEqual(path[0], stringToLatLng(startNodeStr))) {
+      if (startNodeStr === endNodeStr) return [stringToLatLng(startNodeStr)]; // Path to self
+      // This might indicate an issue if a path was expected.
+      // If previous.get(endNodeStr) is undefined but distances.get(endNodeStr) is not Infinity,
+      // it means endNodeStr is startNodeStr itself.
+      console.warn("Dijkstra path reconstruction issue or start=end.");
+  }
+
+  return path.length > 0 ? path : null;
+}
+
+
+// --- Main Pathfinding Function ---
+export function findPath(
+  roads: MapFeature[],
+  start: LatLng,
+  end: LatLng
+): LatLng[] | null {
+  console.log('findPath called with Start:', start, 'End:', end);
+
+  if (arePointsEqual(start, end)) return [start];
+
+  const baseGraph = buildGraph(roads);
+  
+  // Create a mutable copy for adding start/end projections
+  const workingGraph = new Map<string, Map<string, number>>();
+  baseGraph.forEach((edges, key) => workingGraph.set(key, new Map(edges)));
+
+  const startInfo = findNearestPointOnGraph(start, workingGraph);
+  if (!startInfo) {
+    console.error("Could not find nearest point on graph for Start.");
+    return null;
+  }
+  const effectiveStartNodeStr = addPointToGraph(workingGraph, startInfo);
+
+  // Re-evaluate for end point on the graph that might now include the start projection
+  const endInfo = findNearestPointOnGraph(end, workingGraph);
+   if (!endInfo) {
+    console.error("Could not find nearest point on graph for End.");
+    return null;
+  }
+  const effectiveEndNodeStr = addPointToGraph(workingGraph, endInfo);
+  
+  console.log('Effective Start Node:', effectiveStartNodeStr, 'Effective End Node:', effectiveEndNodeStr);
+
+  const dijkstraPath = dijkstra(workingGraph, effectiveStartNodeStr, effectiveEndNodeStr);
+
+  // Assemble the final path
+  const finalPath: LatLng[] = [];
+  if (!dijkstraPath) {
+    // Handle no path from Dijkstra: e.g. start/end project to same point
+    if (effectiveStartNodeStr === effectiveEndNodeStr) {
+        const commonNodeLatLng = stringToLatLng(effectiveStartNodeStr);
+        finalPath.push(start);
+        if (!arePointsEqual(start, commonNodeLatLng) && !arePointsEqual(end, commonNodeLatLng)) {
+             finalPath.push(commonNodeLatLng);
+        }
+        if (finalPath.length === 0 || !arePointsEqual(end, finalPath[finalPath.length-1])) {
+            finalPath.push(end);
+        }
+    } else {
+        console.warn("Dijkstra couldn't find a path.");
+        return null; // No path found
+    }
+  } else {
+    // Path found by Dijkstra
+    finalPath.push(start); // Start with the actual start coordinate
+    
+    dijkstraPath.forEach(p_latlng => {
+        if (finalPath.length === 0 || !arePointsEqual(p_latlng, finalPath[finalPath.length - 1])) {
+            finalPath.push(p_latlng);
+        }
+    });
+
+    if (finalPath.length === 0 || !arePointsEqual(end, finalPath[finalPath.length - 1])) {
+        finalPath.push(end); // End with the actual end coordinate
+    }
+  }
+  
+  // Deduplicate final path just in case (e.g., if start/end was one of the dijkstra points)
+  if (finalPath.length < 1) return null; // Should not happen if start/end are valid
+  const uniqueFinalPath: LatLng[] = [finalPath[0]];
+  for (let i = 1; i < finalPath.length; i++) {
+      if (!arePointsEqual(finalPath[i], uniqueFinalPath[uniqueFinalPath.length-1])) {
+          uniqueFinalPath.push(finalPath[i]);
+      }
+  }
+  
+  console.log('Computed final path:', uniqueFinalPath);
+  return uniqueFinalPath.length > 0 ? uniqueFinalPath : null;
+}
+
+// --- Helper to log graph for debugging ---
+function graphToLoggable(graph: Map<string, Map<string, number>>): Record<string, Record<string, number>> {
+    const loggable: Record<string, Record<string, number>> = {};
+    graph.forEach((edges, node) => {
+        const edgeObj: Record<string, number> = {};
+        edges.forEach((distance, neighbor) => {
+            edgeObj[neighbor] = distance;
+        });
+        loggable[node] = edgeObj;
+    });
+    return loggable;
 }
