@@ -75,8 +75,33 @@ export default function MapEditor() {
     setMode(drawingMode);
   }, [drawingMode, setMode]);
   
+  function triggerVibrationAlert(durationOrPattern: number | number[]) {
+    if ('vibrate' in navigator) { // A more robust check for the method
+      try {
+        const success = navigator.vibrate(durationOrPattern);
+        if (success) {
+          console.log('Vibration initiated successfully.');
+        } else {
+          console.warn('Vibration command was not successful (e.g., pattern too long, or other internal error).');
+        }
+      } catch (error) {
+        console.error('Error attempting to vibrate:', error);
+      }
+    } else {
+      console.log('Vibration API not supported in this browser or device.');
+    }
+  }
+
+  function showAlert(message : string) {
+    console.log("Alert:", message);
+    triggerVibrationAlert(300);
+  }
   // Handler for changing drawing mode
   const handleModeChange = useCallback((mode: DrawingMode) => {
+    if (mode === 'VIBRATE') {
+      showAlert("Important Update!");
+      return;
+    }
     setDrawingMode(mode);
     toast({ 
       title: 'Tool Selected', 

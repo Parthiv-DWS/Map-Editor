@@ -26,6 +26,7 @@ const tools: ToolItem[] = [
   { id: 'ERASE', icon: 'delete', label: 'Delete' },
   { id: 'BLOCK', icon: 'block', label: 'Block Road' },
   { id: 'NAVIGATE', icon: 'directions', label: 'Navigate' },
+  { id: 'VIBRATE', icon: 'vibrate', label: 'Vibrate' },
 ];
 
 interface SidebarPanelProps {
