@@ -26,6 +26,8 @@ export default function useDrawingManager({
   const [selectedFeature, setSelectedFeature] = useState<{id: string, overlay: google.maps.MVCObject} | null>(null);
   const [navigationPoints, setNavigationPoints] = useState<{start?: LatLng, end?: LatLng}>({});
   const [navigationPath, setNavigationPath] = useState<google.maps.Polyline | null>(null);
+  const [startMarkers, setStartMarkers] = useState<google.maps.Marker | null>(null);
+  const [endMarkers, setEndMarkers] = useState<google.maps.Marker | null>(null);
 
   // Initialize drawing manager
   useEffect(() => {
@@ -130,8 +132,8 @@ export default function useDrawingManager({
         setFeatureOverlays(prev => new Map(prev).set(newFeature.id, polyline));
 
         // Switch back to SELECT mode after drawing
-        setDrawingMode('SELECT');
-        drawingManager.setDrawingMode(null);
+        // setDrawingMode('SELECT');
+        // drawingManager.setDrawingMode(null);
       }
     );
 
@@ -166,8 +168,8 @@ export default function useDrawingManager({
         setFeatureOverlays(prev => new Map(prev).set(newFeature.id, polygon));
 
         // Switch back to SELECT mode after drawing
-        setDrawingMode('SELECT');
-        drawingManager.setDrawingMode(null);
+        // setDrawingMode('SELECT');
+        // drawingManager.setDrawingMode(null);
       }
     );
 
@@ -202,8 +204,8 @@ export default function useDrawingManager({
         setFeatureOverlays(prev => new Map(prev).set(newFeature.id, marker));
 
         // Switch back to SELECT mode after placing a marker
-        setDrawingMode('SELECT');
-        drawingManager.setDrawingMode(null);
+        // setDrawingMode('SELECT');
+        // drawingManager.setDrawingMode(null);
       }
     );
 
@@ -286,7 +288,7 @@ export default function useDrawingManager({
             selectFeature(feature.id, polyline);
           } else if (drawingMode === 'ERASE') {
             deleteFeature(feature.id);
-          } else if (drawingMode === 'BLOCK' && feature.type === 'road') {
+          } else if (drawingMode === 'BLOCK' && (feature.type === 'road' || feature.type === 'blocked')) {
             toggleBlockRoad(feature.id);
           }
         });
@@ -393,6 +395,7 @@ export default function useDrawingManager({
         },
         zIndex: 1000
       });
+      setStartMarkers(startMarker);
     } else if (!navigationPoints.end) {
       setNavigationPoints(prev => ({ ...prev, end: clickedPoint }));
       const endMarker = new google.maps.Marker({
@@ -412,6 +415,7 @@ export default function useDrawingManager({
         },
         zIndex: 1000
       });
+      setEndMarkers(endMarker);
 
       // Find and display path
       const path = findPath(features, navigationPoints.start, clickedPoint);
@@ -423,7 +427,7 @@ export default function useDrawingManager({
           path,
           map,
           strokeColor: '#FF4081', // Bright pink color for better visibility
-          strokeWeight: 6, // Thicker line
+          strokeWeight: 10, // Thicker line
           strokeOpacity: 0.9,
           icons: [{ // Add animated arrows
             icon: {
@@ -448,8 +452,14 @@ export default function useDrawingManager({
         navigationPath.setMap(null);
         setNavigationPath(null);
       }
-      // Clear all markers
-      map?.markers?.forEach(marker => marker.setMap(null));
+      if (startMarkers) {
+        startMarkers.setMap(null);
+        setStartMarkers(null);
+      }
+      if (endMarkers) {
+        endMarkers.setMap(null);
+        setEndMarkers(null);
+      }
     }
     if (!drawingManager) return;
 
@@ -474,7 +484,7 @@ export default function useDrawingManager({
       default:
         drawingManager.setDrawingMode(null);
     }
-  }, [drawingManager, selectedFeature]);
+  }, [drawingManager, selectedFeature,navigationPath]);
 
   // Select a feature
   const selectFeature = useCallback((featureId: string, overlay: google.maps.MVCObject) => {

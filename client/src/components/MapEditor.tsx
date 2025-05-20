@@ -16,7 +16,7 @@ export default function MapEditor() {
   const [drawingMode, setDrawingMode] = useState<DrawingMode>('SELECT');
   const [roadStyle, setRoadStyle] = useState<RoadStyle>({
     color: '#3B82F6',
-    width: 7,
+    width: 10,
     blockStyle: 'highlight',
   });
   
@@ -51,10 +51,7 @@ export default function MapEditor() {
   });
   
   const { 
-    drawingMode: activeDrawingMode,
     setMode,
-    deleteFeature: deleteMapFeature,
-    toggleBlockRoad,
   } = useDrawingManager({
     map,
     features: mapData.features,

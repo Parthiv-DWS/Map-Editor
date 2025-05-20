@@ -110,7 +110,7 @@ export default function SidebarPanel({
             <Button
               key={tool.id}
               variant="outline"
-              className={`tool-item flex flex-col items-center justify-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition h-auto ${
+              className={`tool-item flex flex-col items-center justify-center p-3 rounded-lg border border-gray-200 hover:bg-gray-400 transition h-auto ${
                 drawingMode === tool.id ? 'active' : ''
               }`}
               onClick={() => onModeChange(tool.id)}
