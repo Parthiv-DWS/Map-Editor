@@ -18,6 +18,7 @@ export type DrawingMode =
   | 'ERASE'
   | 'BLOCK'
   | 'NAVIGATE'
+  | 'MULTI_NAVIGATE'
   | 'VIBRATE';
 
 export type RoadStyle = {

@@ -11,6 +11,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Bounds, DrawingMode, RoadStyle } from '@/lib/types';
+import { VehicleRequest } from '@/lib/multiVehicleNavigation';
+import { DEFAULT_TRAILER_LENGTH, DEFAULT_TRAILER_SPEED } from '@/lib/utils';
 
 interface ToolItem {
   id: DrawingMode;
@@ -26,6 +28,7 @@ const tools: ToolItem[] = [
   { id: 'ERASE', icon: 'delete', label: 'Delete' },
   { id: 'BLOCK', icon: 'block', label: 'Block Road' },
   { id: 'NAVIGATE', icon: 'directions', label: 'Navigate' },
+  { id: 'MULTI_NAVIGATE', icon: 'multiple_stop', label: 'Multi-Navigate' },
   { id: 'VIBRATE', icon: 'vibrate', label: 'Vibrate' },
 ];
 
@@ -41,6 +44,15 @@ interface SidebarPanelProps {
   onImport: (file: File) => void;
   isVisible: boolean;
   onToggle: () => void;
+  isMultiNavModeActive: boolean; // New: To know when to show the multi-nav UI
+  multiNavRequests: VehicleRequest[];
+  currentMultiNavStepInfo: 'IDLE' | 'SET_START' | 'SET_END'; // To display helper text
+  onCalculateMultiNav: () => void;
+  onClearMultiNav: () => void;
+  onUpdateMultiNavRequest: (request: VehicleRequest) => void;
+  onRemoveMultiNavRequest: (requestId: string) => void;
+  // You might also need to pass the current count of requests if needed for labels like "Trailer X"
+  multiNavRequestsCount: number;
 }
 
 export default function SidebarPanel({
@@ -55,6 +67,14 @@ export default function SidebarPanel({
   onImport,
   isVisible,
   onToggle,
+  isMultiNavModeActive,
+  multiNavRequests,
+  currentMultiNavStepInfo,
+  onCalculateMultiNav,
+  onClearMultiNav,
+  onUpdateMultiNavRequest,
+  onRemoveMultiNavRequest,
+  multiNavRequestsCount,
 }: SidebarPanelProps) {
   const [tempBounds, setTempBounds] = useState<Bounds>(bounds);
   
@@ -86,7 +106,7 @@ export default function SidebarPanel({
   
   return (
     <div 
-      className={`sidebar bg-white shadow-md w-72 flex flex-col z-10 border-r border-gray-200 md:relative absolute transition-all duration-300 ease-in-out 
+      className={`sidebar bg-white shadow-md w-72 flex flex-col z-10 border-r border-gray-200 md:relative absolute transition-all duration-300 ease-in-out overflow-y-auto
         ${!isVisible ? '-translate-x-full' : 'translate-x-0'}`}
     >
       <div className="p-4 border-b border-gray-200">
@@ -181,6 +201,79 @@ export default function SidebarPanel({
         </div>
       </div>
       
+      {/* Conditionally render the Multi-Navigate UI section */}
+      {isMultiNavModeActive && (
+        <div className="p-4 border-t border-gray-200">
+          <h3 className="text-sm font-medium text-gray-500 mb-2">MULTI-TRAILER NAVIGATION</h3>
+          
+          {currentMultiNavStepInfo === 'SET_START' && 
+            <p className="text-xs text-blue-600 mb-2">Click map to set START for Trailer {multiNavRequestsCount + 1}</p>}
+          {currentMultiNavStepInfo === 'SET_END' && 
+            <p className="text-xs text-red-600 mb-2">Click map to set END for Trailer {multiNavRequestsCount + 1}</p>}
+
+          <div className="space-y-2 max-h-60 overflow-y-auto mb-3 pr-1"> {/* Added padding-right for scrollbar */}
+            {multiNavRequests.map((req, index) => (
+              <div key={req.id} className="text-xs p-2 border rounded bg-gray-100 shadow-sm">
+                <div className="flex justify-between items-center mb-1">
+                  <strong className="text-gray-700">Trailer {index + 1}</strong>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-red-500 hover:bg-red-100 p-1 h-auto"
+                    onClick={() => onRemoveMultiNavRequest(req.id)}
+                  >
+                    <span className="material-icons text-base">delete_outline</span>
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                  <div>
+                    <Label className="text-xxs text-gray-500 block">Start Time (s)</Label>
+                    <Input 
+                      type="number" 
+                      value={req.startTime} 
+                      onChange={e => onUpdateMultiNavRequest({...req, startTime: parseInt(e.target.value) || 0})} 
+                      className="w-full h-7 px-1 py-0.5 text-xs border-gray-300 rounded" 
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xxs text-gray-500 block">Speed (m/s)</Label>
+                    <Input 
+                      type="number" 
+                      value={req.speed} 
+                      onChange={e => onUpdateMultiNavRequest({...req, speed: parseInt(e.target.value) || DEFAULT_TRAILER_SPEED})} 
+                      className="w-full h-7 px-1 py-0.5 text-xs border-gray-300 rounded" 
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xxs text-gray-500 block">Length (m)</Label>
+                    <Input 
+                      type="number" 
+                      value={req.length} 
+                      onChange={e => onUpdateMultiNavRequest({...req, length: parseInt(e.target.value) || DEFAULT_TRAILER_LENGTH})} 
+                      className="w-full h-7 px-1 py-0.5 text-xs border-gray-300 rounded" 
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {multiNavRequests.length > 0 && (
+            <div className="space-y-2">
+              <Button onClick={onCalculateMultiNav} className="w-full">
+                Calculate All Paths
+              </Button>
+              <Button onClick={onClearMultiNav} variant="outline" className="w-full">
+                Clear Requests & Paths
+              </Button>
+            </div>
+          )}
+          {multiNavRequests.length === 0 && currentMultiNavStepInfo === 'SET_START' && (
+             <p className="text-xs text-gray-400 italic">No requests defined yet. Click map to start.</p>
+          )}
+        </div>
+      )}
+
       <div className="p-4">
         <h3 className="text-sm font-medium text-gray-500 mb-3">STYLING OPTIONS</h3>
         <div className="space-y-3">

@@ -249,6 +249,7 @@ export default function useDrawingManager({
           strokeOpacity: 1.0,
           editable: false,
           draggable: false,
+          zIndex: 10,
         });
 
         // Add special styling for blocked roads
