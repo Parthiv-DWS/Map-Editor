@@ -2443,3 +2443,7 @@ export const dummyData = {
     }
 ],
 }
+
+// Default values for new trailer requests
+export const DEFAULT_TRAILER_SPEED = 15; // m/s (approx 54 km/h)
+export const DEFAULT_TRAILER_LENGTH = 18; // meters
