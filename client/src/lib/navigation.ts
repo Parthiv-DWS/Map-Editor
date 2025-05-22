@@ -14,20 +14,20 @@ export interface MapFeature {
 }
 
 // --- Utility Functions (mostly from your existing code) ---
-function stringToLatLng(str: string): LatLng {
+export function stringToLatLng(str: string): LatLng {
   const [lat, lng] = str.split(',').map(Number);
   return { lat, lng };
 }
 
-function latLngToString(point: LatLng): string {
+export function latLngToString(point: LatLng): string {
   return `${point.lat.toFixed(8)},${point.lng.toFixed(8)}`; // Increased precision slightly for keys
 }
 
-function arePointsEqual(p1: LatLng, p2: LatLng, tolerance: number = 1e-7): boolean { // Adjusted tolerance
+export function arePointsEqual(p1: LatLng, p2: LatLng, tolerance: number = 1e-7): boolean { // Adjusted tolerance
   return Math.abs(p1.lat - p2.lat) < tolerance && Math.abs(p1.lng - p2.lng) < tolerance;
 }
 
-function calculateDistance(point1: LatLng, point2: LatLng): number {
+export function calculateDistance(point1: LatLng, point2: LatLng): number {
   const R = 6371e3; // Earth radius in meters
   const φ1 = (point1.lat * Math.PI) / 180;
   const φ2 = (point2.lat * Math.PI) / 180;
@@ -106,7 +106,7 @@ function snapToVertex(point: LatLng, vertices: LatLng[], tolerance: number = 1e-
 }
 
 // --- Graph Building Logic (buildGraph) ---
-function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
+export function buildGraph(roads: MapFeature[]): Map<string, Map<string, number>> {
   const graph = new Map<string, Map<string, number>>();
   const allVerticesInvolvedInIntersections = new Set<string>();
 
@@ -263,7 +263,7 @@ interface NearestPointInfo {
   onExistingNode: boolean; // True if 'point' is an existing graph node
 }
 
-function findNearestPointOnGraph(
+export function findNearestPointOnGraph(
   target: LatLng,
   graph: Map<string, Map<string, number>>
 ): NearestPointInfo | null {
@@ -326,7 +326,7 @@ function findNearestPointOnGraph(
 }
 
 // --- Adding Projected Point to Graph ---
-function addPointToGraph(
+export function addPointToGraph(
   graph: Map<string, Map<string, number>>,
   nearestInfo: NearestPointInfo
 ): string { // Returns the string key of the effective node for originalPoint in the graph
@@ -524,17 +524,4 @@ export function findPath(
   
   console.log('Computed final path:', uniqueFinalPath);
   return uniqueFinalPath.length > 0 ? uniqueFinalPath : null;
-}
-
-// --- Helper to log graph for debugging ---
-function graphToLoggable(graph: Map<string, Map<string, number>>): Record<string, Record<string, number>> {
-    const loggable: Record<string, Record<string, number>> = {};
-    graph.forEach((edges, node) => {
-        const edgeObj: Record<string, number> = {};
-        edges.forEach((distance, neighbor) => {
-            edgeObj[neighbor] = distance;
-        });
-        loggable[node] = edgeObj;
-    });
-    return loggable;
 }

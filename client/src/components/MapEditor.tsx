@@ -8,8 +8,14 @@ import ResetModal from './ResetModal';
 import useMap from '@/hooks/useMap';
 import useDrawingManager from '@/hooks/useDrawingManager';
 import useMapStorage from '@/hooks/useMapStorage';
-import { Bounds, DrawingMode, MapFeature, RoadStyle } from '@/lib/types';
-import { DEFAULT_BOUNDS } from '@/lib/storage';
+import { Bounds, DrawingMode, LatLng, RoadStyle } from '@/lib/types';
+import { DEFAULT_BOUNDS } from '@/lib/storage';import {
+  planAllVehicleRoutes,
+  VehiclePathPlan,
+  VehicleRequest, // Make sure this is exported from multiVehicleNavigation.ts
+} from '@/lib/multiVehicleNavigation'; // Adjust path if needed
+import { v4 as uuidv4 } from 'uuid'; 
+import { DEFAULT_TRAILER_LENGTH, DEFAULT_TRAILER_SPEED } from '@/lib/utils';
 
 export default function MapEditor() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -19,6 +25,17 @@ export default function MapEditor() {
     width: 10,
     blockStyle: 'highlight',
   });
+
+   // --- NEW STATES FOR MULTI-TRAILER NAVIGATION ---
+   const [multiNavRequests, setMultiNavRequests] = useState<VehicleRequest[]>([]);
+   const [currentMultiNavStep, setCurrentMultiNavStep] = useState<'IDLE' | 'SET_START' | 'SET_END'>('IDLE');
+   // Stores the startPosition while waiting for the endPosition click
+   const [pendingMultiNavRequestStart, setPendingMultiNavRequestStart] = useState<LatLng | null>(null); 
+   
+   // To store Google Maps Polyline objects for multi-nav paths
+   const [multiNavPathOverlays, setMultiNavPathOverlays] = useState<google.maps.Polyline[]>([]);
+   // To store Google Maps Marker objects for start/end points of each request
+   const [multiNavRequestMarkerOverlays, setMultiNavRequestMarkerOverlays] = useState<google.maps.Marker[]>([])
   
   const { toast } = useToast();
   const { 
@@ -99,6 +116,19 @@ export default function MapEditor() {
       showAlert("Important Update!");
       return;
     }
+    // Setup or teardown for MULTI_NAVIGATE mode
+    if (mode === 'MULTI_NAVIGATE') {
+      setCurrentMultiNavStep('SET_START');
+      setPendingMultiNavRequestStart(null);
+      // Don't clear existing requests automatically, user might want to add more.
+      // Clear previously drawn multi-nav paths and temporary markers for a fresh planning session.
+      multiNavPathOverlays.forEach(p => p.setMap(null));
+      setMultiNavPathOverlays([]);
+      // Keep request markers if user is just re-planning, or clear if starting totally fresh.
+      // For now, let's clear temporary markers used for *defining* new requests if any.
+      // Actual request markers (S1, E1, S2, E2) will be handled more explicitly.
+      
+    }
     setDrawingMode(mode);
     toast({ 
       title: 'Tool Selected', 
@@ -110,7 +140,180 @@ export default function MapEditor() {
       setSidebarVisible(false);
     }
   }, [toast]);
-  
+
+  useEffect(() => {
+    if (!map || drawingMode !== 'MULTI_NAVIGATE' || !google) return; // Ensure google is loaded
+
+    const clickListener = map.addListener('click', (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng) return;
+      const clickedLatLng = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+
+      if (currentMultiNavStep === 'SET_START') {
+        setPendingMultiNavRequestStart(clickedLatLng);
+        setCurrentMultiNavStep('SET_END');
+        
+        // Add a temporary start marker for the *current* request being defined
+        const tempStartMarker = new google.maps.Marker({
+            position: clickedLatLng, 
+            map, 
+            label: `S${multiNavRequests.length + 1}`, // Tentative label
+            icon: { 
+                path: google.maps.SymbolPath.CIRCLE, 
+                scale: 7, 
+                fillColor: '#3498db', // Blueish for start
+                fillOpacity: 1, 
+                strokeColor: 'white', 
+                strokeWeight: 1.5 
+            },
+            zIndex: google.maps.Marker.MAX_ZINDEX + 1 // Ensure it's on top
+        });
+        // Add to a temporary list if you want to clear only these "in-progress" markers
+        // For now, we'll add all to multiNavRequestMarkerOverlays and clear them more broadly.
+        setMultiNavRequestMarkerOverlays(prev => [...prev, tempStartMarker]);
+
+      } else if (currentMultiNavStep === 'SET_END' && pendingMultiNavRequestStart) {
+        const newRequest: VehicleRequest = {
+          id: uuidv4(),
+          startPosition: pendingMultiNavRequestStart,
+          endPosition: clickedLatLng,
+          speed: DEFAULT_TRAILER_SPEED,
+          length: DEFAULT_TRAILER_LENGTH,
+          // Stagger start times by 30s per request, make this configurable later
+          startTime: multiNavRequests.length === 0 ? 0 : 
+          (multiNavRequests[multiNavRequests.length -1].startTime + 30),
+        };
+        setMultiNavRequests(prev => [...prev, newRequest]);
+        
+        // Add an end marker for the *completed* request definition
+        const endMarker = new google.maps.Marker({
+            position: clickedLatLng, 
+            map, 
+            label: `E${multiNavRequests.length + 1}`, // +1 because state update is async
+            icon: { 
+                path: google.maps.SymbolPath.CIRCLE, 
+                scale: 7, 
+                fillColor: '#e74c3c', // Reddish for end
+                fillOpacity: 1, 
+                strokeColor: 'white', 
+                strokeWeight: 1.5
+            },
+            zIndex: google.maps.Marker.MAX_ZINDEX + 1
+        });
+        setMultiNavRequestMarkerOverlays(prev => [...prev, endMarker]);
+        
+        setPendingMultiNavRequestStart(null); // Reset for next request
+        setCurrentMultiNavStep('SET_START');   // Ready for next request's start point
+      }
+    });
+
+    return () => {
+      google.maps.event.removeListener(clickListener);
+    };
+  }, [map, google, drawingMode, currentMultiNavStep, pendingMultiNavRequestStart, multiNavRequests]);
+
+  // MapEditor.tsx
+
+  const clearAllMultiNavData = useCallback(() => {
+    multiNavRequestMarkerOverlays.forEach(m => m.setMap(null));
+    setMultiNavRequestMarkerOverlays([]);
+    multiNavPathOverlays.forEach(p => p.setMap(null));
+    setMultiNavPathOverlays([]);
+    setMultiNavRequests([]);
+    setCurrentMultiNavStep('SET_START'); // Ready to define new requests
+    setPendingMultiNavRequestStart(null);
+    toast({ title: "Multi-Navigation Cleared", description: "All trailer requests and paths have been removed." });
+  }, [multiNavRequestMarkerOverlays, multiNavPathOverlays, toast]);
+
+
+  const handleCalculateMultiTrailerPaths = useCallback(async () => {
+    if (multiNavRequests.length === 0) {
+      toast({ variant: "destructive", title: "No Requests", description: "Please define at least one trailer navigation request." });
+      return;
+    }
+    
+    // Clear previous paths from map
+    multiNavPathOverlays.forEach(p => p.setMap(null));
+    setMultiNavPathOverlays([]);
+
+    toast({ title: "Calculating Paths...", description: "Please wait while routes are planned." });
+
+    try {
+      const resultingPlans: VehiclePathPlan[] = await planAllVehicleRoutes(
+        mapData.features, // Pass your current map features
+        multiNavRequests
+      );
+      
+      const newPathOverlays: google.maps.Polyline[] = [];
+      const pathColors = [
+        '#FF69B4', // HotPink
+        '#FFFF00', // Yellow
+        '#FFA500', // Orange
+        '#ADFF2F', // GreenYellow
+        '#00FFFF', // Cyan/Aqua
+        '#FF00FF', // Magenta
+        '#FA8072', // Salmon
+        '#DA70D6', // Orchid
+        '#FFFFFF', // White (might need an outline if roads are complex)
+      ];
+
+      resultingPlans.forEach((plan, index) => {
+        if (plan.status === 'SUCCESS' && plan.path.length > 0) {
+          const googlePath = plan.path.map(tn => ({ lat: tn.latlng.lat, lng: tn.latlng.lng }));
+          let icons: google.maps.IconSequence[] | undefined = undefined;
+          const strokeColor = pathColors[index % pathColors.length];
+
+          const polyline = new google.maps.Polyline({
+            path: googlePath,
+            map: map, // your google.maps.Map instance
+            strokeColor: strokeColor,
+            strokeWeight:  6, // Make first path slightly thicker
+            strokeOpacity: 1,
+            zIndex:  100 + (resultingPlans.length - 1 - index), // Draw earlier paths on top
+            icons: icons = [{
+              icon: {
+                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                scale: 3,
+                strokeColor: '#000000', // Arrow outline
+                strokeWeight: 0.5,
+                fillColor: strokeColor, // Match line, or a contrasting fill
+                fillOpacity: 1,
+              },
+              offset: '25px', // Start arrows a bit into the segment
+              repeat: '100px'
+            }],
+          });
+          newPathOverlays.push(polyline);
+        } else {
+          toast({
+            variant: "destructive",
+            title: `Planning Failed for Trailer ${index + 1}`,
+            description: `ID: ...${plan.vehicleId.slice(-4)}. Status: ${plan.status}.`
+          });
+        }
+      });
+      setMultiNavPathOverlays(newPathOverlays);
+      if (newPathOverlays.length > 0) {
+        toast({ title: "Path Calculation Complete", description: `${newPathOverlays.length} paths displayed.` });
+      }
+
+    } catch (error) {
+      console.error("Error during multi-trailer path planning:", error);
+      toast({ variant: "destructive", title: "Planning Error", description: "An unexpected error occurred. See console." });
+    }
+  }, [map, google, multiNavRequests, mapData.features, multiNavPathOverlays, toast]);
+
+  const handleUpdateMultiNavRequest = useCallback((updatedRequest: VehicleRequest) => {
+    setMultiNavRequests(currentReqs => 
+        currentReqs.map(r => r.id === updatedRequest.id ? updatedRequest : r)
+    );
+  }, []);
+
+  const handleRemoveMultiNavRequest = useCallback((requestId: string) => {
+    setMultiNavRequests(currentReqs => currentReqs.filter(r => r.id !== requestId));
+    // Potentially remove associated S/E markers here if you track them per request
+    toast({ title: "Request Removed" });
+  }, [toast]);
+
   // Handler for road style changes
   const handleRoadStyleChange = useCallback((style: Partial<RoadStyle>) => {
     setRoadStyle(prev => ({ ...prev, ...style }));
@@ -246,6 +449,14 @@ export default function MapEditor() {
           onImport={importData}
           isVisible={sidebarVisible}
           onToggle={() => setSidebarVisible(!sidebarVisible)}
+          isMultiNavModeActive={drawingMode === 'MULTI_NAVIGATE'}
+          multiNavRequests={multiNavRequests}
+          currentMultiNavStepInfo={currentMultiNavStep}
+          onCalculateMultiNav={handleCalculateMultiTrailerPaths}
+          onClearMultiNav={clearAllMultiNavData}
+          onUpdateMultiNavRequest={handleUpdateMultiNavRequest}
+          onRemoveMultiNavRequest={handleRemoveMultiNavRequest}
+          multiNavRequestsCount={multiNavRequests.length}
         />
         
         {/* Map Container */}
